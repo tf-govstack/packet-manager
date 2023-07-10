@@ -1,20 +1,30 @@
 package io.mosip.commons.packet.facade;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import org.assertj.core.util.Strings;
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
 
 import io.mosip.commons.packet.dto.Document;
 import io.mosip.commons.packet.dto.PacketInfo;
 import io.mosip.commons.packet.dto.TagDto;
 import io.mosip.commons.packet.dto.TagRequestDto;
 import io.mosip.commons.packet.dto.packet.PacketDto;
+import io.mosip.commons.packet.exception.ApiNotAccessibleException;
 import io.mosip.commons.packet.exception.NoAvailableProviderException;
 import io.mosip.commons.packet.keeper.PacketKeeper;
 import io.mosip.commons.packet.spi.IPacketWriter;
@@ -32,13 +42,25 @@ public class PacketWriter {
 
     private static final Logger LOGGER = PacketManagerLogger.getLogger(PacketWriter.class);
 
+    public static final String RESPONSE = "response";
+    public static final String SCHEMA_JSON = "schemaJson";
+    
     @Autowired(required = false)
     @Qualifier("referenceWriterProviders")
     @Lazy
     private List<IPacketWriter> referenceWriterProviders;
 
+    @Autowired
+	@Qualifier("selfTokenRestTemplate")
+	private RestTemplate restTemplate;
+    
+    @Value("${MIDSCHEMAURL:null}")
+    private String schemaUrl;
+    
 	@Autowired
 	private PacketKeeper packetKeeper;
+	
+	private Map<String, String> schemajsonValue = null;
 
     /**
      * Set field in identity object
@@ -165,6 +187,10 @@ public class PacketWriter {
                 "createPacket for RID : " + packetDto.getId() + " source : " + packetDto.getSource() + " process : " + packetDto.getProcess());
         List<PacketInfo> packetInfos = null;
         IPacketWriter provider = getProvider(packetDto.getSource(), packetDto.getProcess());
+        if (Strings.isNullOrEmpty(packetDto.getSchemaJson())) {
+			packetDto.setSchemaJson(getSchemaJson(packetDto.getSchemaVersion()));
+		}
+//		LOGGER.error("No schemaJson Available" + packetDto.getSchemaVersion());
         try {
             if (packetDto.getFields() != null)
                 provider.setFields(packetDto.getId(), packetDto.getFields());
@@ -190,6 +216,40 @@ public class PacketWriter {
         }
         return packetInfos;
     }
+    
+    public String getSchemaJson(String version) throws ApiNotAccessibleException {
+		if (schemajsonValue != null && !schemajsonValue.isEmpty() && schemajsonValue.get(version) != null)
+			return schemajsonValue.get(version);
+			
+		Map<String, String> request = new HashMap<String, String>();
+		request.put("schemaVersion", version);
+		HttpEntity<?> httpEntity = new HttpEntity<>(request);
+		ResponseEntity<String> responseSchemaJson = restTemplate.exchange(schemaUrl, HttpMethod.GET, httpEntity,
+			 String.class);
+
+		if (responseSchemaJson == null)
+			throw new ApiNotAccessibleException("Could not fetch schemajsonValue with version : " + version);
+
+		String responseString = null;
+		try {
+			JSONObject jsonObject = new JSONObject(responseSchemaJson.getBody());
+			JSONObject respObj = (JSONObject) jsonObject.get(RESPONSE);
+			responseString = respObj != null ? (String) respObj.get(SCHEMA_JSON) : null;
+		} catch (JSONException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		if (responseString != null) {
+			if (schemajsonValue == null) {
+				schemajsonValue = new HashMap<>();
+				schemajsonValue.put(version, responseString);
+			} else
+				schemajsonValue.put(version, responseString);
+		}
+
+		return schemajsonValue.get(version);
+	}
 
     /**
      * Get the packet writer provider instance for source and process
