@@ -190,7 +190,7 @@ public class PacketWriter {
         if (Strings.isNullOrEmpty(packetDto.getSchemaJson())) {
 			packetDto.setSchemaJson(getSchemaJson(packetDto.getSchemaVersion()));
 		}
-//		LOGGER.error("No schemaJson Available" + packetDto.getSchemaVersion());
+        
         try {
             if (packetDto.getFields() != null)
                 provider.setFields(packetDto.getId(), packetDto.getFields());
