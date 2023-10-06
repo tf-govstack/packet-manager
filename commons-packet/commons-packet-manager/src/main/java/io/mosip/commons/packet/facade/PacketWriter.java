@@ -13,7 +13,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
@@ -221,14 +220,17 @@ public class PacketWriter {
 		if (schemajsonValue != null && !schemajsonValue.isEmpty() && schemajsonValue.get(version) != null)
 			return schemajsonValue.get(version);
 			
-		Map<String, String> request = new HashMap<String, String>();
-		request.put("schemaVersion", version);
-		HttpEntity<?> httpEntity = new HttpEntity<>(request);
-		ResponseEntity<String> responseSchemaJson = restTemplate.exchange(schemaUrl, HttpMethod.GET, httpEntity,
-			 String.class);
+		String url = schemaUrl + "?schemaVersion=" + version;
+		ResponseEntity<String> responseSchemaJson;
+		try {
+			responseSchemaJson = restTemplate.exchange(url, HttpMethod.GET, null,
+				 String.class);
+		} catch (Exception e) {
+			throw new ApiNotAccessibleException("Could not fetch schemajson with version : " + version);
+		}
 
 		if (responseSchemaJson == null)
-			throw new ApiNotAccessibleException("Could not fetch schemajsonValue with version : " + version);
+			throw new ApiNotAccessibleException("Could not fetch schemajson with version : " + version);
 
 		String responseString = null;
 		try {
@@ -236,7 +238,6 @@ public class PacketWriter {
 			JSONObject respObj = (JSONObject) jsonObject.get(RESPONSE);
 			responseString = respObj != null ? (String) respObj.get(SCHEMA_JSON) : null;
 		} catch (JSONException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		
